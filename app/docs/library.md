@@ -15,6 +15,10 @@ The grid and filmstrip list photo formats only, including while a folder is
 loading. Non-photo files such as `.ACR` and XMP sidecars, documents and videos
 do not get placeholder cells. The scan checks whether each photo can be read.
 
+On Windows, user profiles, folders and file names can contain characters such
+as `ł` or `写真`. Immage reads photo metadata and saves edits in XMP sidecars
+beside the photos, including on other drives.
+
 ## Folders
 
 Open the **Folders** card in the **Library** panel.

@@ -44,10 +44,11 @@ and Linux. **All builds are alpha; bugs are expected.**
   photo on screen first.
 
 Your originals stay untouched. Edits are saved automatically in XMP sidecars
-beside your photos. Simple mode offers a selected set of darktable’s tools in a
-fixed workflow, and Advanced mode adds darktable’s own modules; photographers
-who need every pipeline control can continue editing in a compatible version of
-darktable.
+beside your photos, including in Windows folders whose names contain accented
+letters or other Unicode characters. Simple mode offers a selected set of
+darktable’s tools in a fixed workflow, and Advanced mode adds darktable’s own
+modules. Photographers who need every pipeline control can continue editing
+in a compatible version of darktable.
 
 **Using darktable already?** Try Immage on copies first. Immage uses a
 development version of darktable, and stable releases may not read its newer

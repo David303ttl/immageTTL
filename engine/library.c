@@ -202,6 +202,10 @@ static gboolean _write_xmp_whole(const dt_imgid_t imgid, const char *filename, c
   if(g_rename(tmp, filename) != 0)
   {
     _sidecar_failed(filename, "could not replace the old sidecar", errno);
+#ifdef _WIN32
+    // A temporary copy that inherited a read-only bit cannot be unlinked.
+    if(existed && !(st.st_mode & S_IWUSR)) g_chmod(tmp, st.st_mode | S_IWUSR);
+#endif
     goto done;
   }
   failed = FALSE;

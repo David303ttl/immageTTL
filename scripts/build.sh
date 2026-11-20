@@ -20,6 +20,7 @@ if [ -e .git ]; then
   # take the patch off first: a checkout of a new pin refuses to overwrite
   # the patched file
   if [ -f darktable/.git ] || [ -d darktable/.git ]; then
+    git -C darktable apply --reverse "$root/patches/darktable-windows-exif.patch" 2>/dev/null || true
     git -C darktable apply --reverse "$root/patches/darktable-engine.patch" 2>/dev/null || true
   fi
   git submodule update --init darktable

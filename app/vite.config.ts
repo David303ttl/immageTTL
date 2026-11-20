@@ -16,7 +16,23 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   // the startup splash is a window of its own, with its own page
-  build: { rolldownOptions: { input: { main: "index.html", splash: "splash.html" } } },
+  build: {
+    rolldownOptions: {
+      input: { main: "index.html", splash: "splash.html" },
+      output: {
+        // Keep startup side effects in source order when they cross chunks.
+        strictExecutionOrder: true,
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [
+            { name: "locale", test: /[\\/]locales[\\/][^\\/]+\.json$/, maxSize: 500_000 },
+            { name: "vendor", test: /[\\/]node_modules[\\/]/, maxSize: 500_000 },
+            { name: "workspace", test: /[\\/]app[\\/]src[\\/]/, maxSize: 450_000 },
+          ],
+        },
+      },
+    },
+  },
   resolve: {
     alias: [
       { find: "@immporter", replacement: immporter },

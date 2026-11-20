@@ -36,27 +36,35 @@ maps, cameras, ...), plus `json-glib` for the engine. The CI build
 
 ```sh
 pacman -Syu        # again if it closes the shell half way
-pacman -S --needed git intltool po4a mingw-w64-ucrt-x86_64-{cc,cmake,ninja,libxslt,python-jsonschema,curl,drmingw,exiv2,gcc-libs,gettext,gtk3,imath,iso-codes,lcms2,lensfun,libarchive,libavif,libheif,libjpeg-turbo,libjxl,libpng,libraw,librsvg,libtiff,libwebp,libxml2,omp,openexr,openjpeg2,potrace,pugixml,sqlite3,zlib,json-glib}
+pacman -S --needed git intltool po4a mingw-w64-ucrt-x86_64-{cc,cmake,ninja,libxslt,python-jsonschema,curl,drmingw,brotli,expat,libiconv,libinih,gcc-libs,gettext,gtk3,imath,iso-codes,lcms2,lensfun,libarchive,libavif,libheif,libjpeg-turbo,libjxl,libpng,libraw,librsvg,libtiff,libwebp,libxml2,omp,openexr,openjpeg2,potrace,pugixml,sqlite3,zlib,json-glib}
 ```
 
-Clone the fork in the UCRT64 shell. A short path such as `C:\src` helps
-avoid Windows path length limits. Set `core.autocrlf=false` at clone time
-to keep LF endings in shell scripts and the darktable patch, as Windows CI does.
+Build from your existing checkout of the fork. For a new checkout, run the
+clone command in your chosen parent directory. It keeps LF endings in
+shell scripts and the darktable patch, as Windows CI does.
 
 ```sh
-mkdir -p /c/src && cd /c/src
 git clone --config core.autocrlf=false --config core.longpaths=true \
   https://github.com/David303ttl/immageTTL.git immageTTL
 cd immageTTL
 ```
 
+If the checkout's full path contains non-ASCII characters, use an unused
+drive letter for the engine build. Some engine tools, including
+`xsltproc`, can misread those characters. From the repository root in
+PowerShell, run `subst.exe I: (Get-Location).Path`, then use `cd /i` in
+UCRT64. The drive letter points to the same checkout, so artifacts still
+go inside it. Reuse the same drive letter when rebuilding against an
+existing CMake cache. Once the engine build finishes, run `subst.exe I: /D`
+from PowerShell to remove the mapping. Run the app build from the regular
+repository path.
+
 ## Each build
 
-**1. The engine**, in the **MSYS2 UCRT64** shell. The first build takes a
-long while; later ones only rebuild what changed:
+**1. The engine**, from the repository root in the **MSYS2 UCRT64** shell.
+The first build takes a while. Later builds only rebuild what changed.
 
 ```sh
-cd /c/src/immageTTL
 GIT_CONFIG_COUNT=2 \
   GIT_CONFIG_KEY_0=core.autocrlf GIT_CONFIG_VALUE_0=false \
   GIT_CONFIG_KEY_1=core.longpaths GIT_CONFIG_VALUE_1=true \
@@ -65,8 +73,8 @@ GIT_CONFIG_COUNT=2 \
 
 The environment settings also apply to the Git commands the build runs.
 The script initializes the pinned darktable checkout and its engine
-submodules, builds OpenCV and the engine, and checks out the importer at
-the commit in `app/immporter.rev`.
+submodules, builds OpenCV, builds Immage's patched Exiv2 and the engine,
+and checks out the importer at the commit in `app/immporter.rev`.
 
 It ends with `bundled N DLLs, ... MB; not found: 0`.
 
@@ -76,20 +84,20 @@ uses that version to find compatible models. After the engine build,
 `git -C darktable describe --tags --match 'release-*'` should print
 `release-5.7.0-...` for the current pin.
 
-**2. The app and its installers**, in **PowerShell** (MSYS2's shell does
-not see Windows' Node and Rust):
+**2. The app and its installers**, from the repository root in **PowerShell**,
+where Windows' Node and Rust are available.
 
 Use `npm.cmd` to run npm with PowerShell's existing execution policy.
 
 ```powershell
-cd C:\src\immageTTL\immporter
+Set-Location immporter
 npm.cmd ci
-cd ..\app
+Set-Location ..\app
 npm.cmd ci
 npm.cmd run tauri build
 ```
 
-The installer lands in
+The installer lands at this path relative to the repository root:
 `app\src-tauri\target\release\bundle\nsis\Immage_<version>_x64-setup.exe`.
 The `.exe` asks: for everyone, into Program Files, or just for you, under
 AppData, without administrator rights. On an administrator's account
@@ -103,9 +111,10 @@ that copy first.
 
 - Copy the last 20 or so lines of the window's output; the first error is
   the one that matters.
-- If `git ls-files --eol scripts/build.sh` shows `w/crlf`, use a fresh
-  checkout with the clone command above. Shell scripts and patch context
-  need LF endings.
+- If `git ls-files --eol scripts/build.sh patches/darktable-engine.patch`
+  shows `w/crlf`, restore LF endings in the existing checkout and any
+  initialized submodules before building. Set `core.autocrlf=false`
+  locally to preserve LF on future checkouts.
 - If PowerShell cannot find Rust after installation, open a fresh session.
   If you installed rustup without adding it to PATH, run
   `$env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"` for the build session.

@@ -258,7 +258,8 @@ jobs:
             mingw-w64-ucrt-x86_64-cc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-ccache mingw-w64-ucrt-x86_64-libxslt
             mingw-w64-ucrt-x86_64-python-jsonschema mingw-w64-ucrt-x86_64-curl
-            mingw-w64-ucrt-x86_64-drmingw mingw-w64-ucrt-x86_64-exiv2 mingw-w64-ucrt-x86_64-gcc-libs
+            mingw-w64-ucrt-x86_64-drmingw mingw-w64-ucrt-x86_64-gcc-libs
+            mingw-w64-ucrt-x86_64-brotli mingw-w64-ucrt-x86_64-expat mingw-w64-ucrt-x86_64-libiconv mingw-w64-ucrt-x86_64-libinih
             mingw-w64-ucrt-x86_64-gettext mingw-w64-ucrt-x86_64-gtk3 mingw-w64-ucrt-x86_64-imath
             mingw-w64-ucrt-x86_64-iso-codes mingw-w64-ucrt-x86_64-lcms2 mingw-w64-ucrt-x86_64-lensfun
             mingw-w64-ucrt-x86_64-libarchive mingw-w64-ucrt-x86_64-libavif mingw-w64-ucrt-x86_64-libheif
@@ -290,6 +291,8 @@ jobs:
         shell: msys2 {0}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify Windows metadata and XMP
+        run: python -X utf8 verify/windows-metadata.py
       - run: ccache -s
         if: always()
         shell: msys2 {0}

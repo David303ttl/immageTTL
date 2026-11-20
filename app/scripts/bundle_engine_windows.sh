@@ -13,6 +13,14 @@ set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)
 src="$root/build/install"
 dst="$root/app/src-tauri/resources/darktable"
+exiv2="$root/build/exiv2-windows/install"
+
+# Refuse to package an engine install with the stock MSYS2 Exiv2 DLL.
+if [ ! -f "$exiv2/bin/libexiv2-28.dll" ] || [ ! -f "$src/bin/libexiv2-28.dll" ] ||
+   [ "$(sha256sum < "$exiv2/bin/libexiv2-28.dll")" != "$(sha256sum < "$src/bin/libexiv2-28.dll")" ]; then
+  echo "The engine install is missing Immage's patched Exiv2" >&2
+  exit 1
+fi
 
 rm -rf "$dst"
 mkdir -p "$dst/bin" "$dst/lib" "$dst/share"
@@ -20,6 +28,9 @@ cp "$src/bin/darktable-engine.exe" "$dst/bin/"
 cp "$src"/bin/*.dll "$dst/bin/" 2>/dev/null || true
 cp -r "$src/lib/darktable" "$dst/lib/darktable"
 cp -r "$src/share/darktable" "$dst/share/darktable"
+# Match the app's supported languages. English is darktable's source language.
+mkdir -p "$dst/share/locale/fr/LC_MESSAGES"
+cp "$src/share/locale/fr/LC_MESSAGES/darktable.mo" "$dst/share/locale/fr/LC_MESSAGES/"
 # darktable falls back to share/lensfun beside its own data when lensfun's
 # built-in location (inside MSYS2) is missing, as on a user's machine. the
 # current snapshot from lensfun's site, not the package's from the 0.3.4
@@ -110,8 +121,15 @@ if grep -q 'USE_OPENCV:BOOL=ON' "$root/build/CMakeCache.txt" && [ -f "$cv/info" 
   { sed -n 1p "$cv/info" | sed 's/$/, compiled into darktable and the engine/'; sed -n '2,3s/^/  /p' "$cv/info"
     printf '  texts: %s\n\n' "$texts"; } >> "$own"
 fi
+# Exiv2 is built from pinned source with Immage's Windows path patch.
+mkdir -p "$lic/exiv2"
+cp "$exiv2/COPYING" "$lic/exiv2/"
+{ cat "$exiv2/info"
+  printf '  patch: patches/exiv2-windows-unicode.patch in the Immage source\n'
+  printf '  texts: exiv2/COPYING\n\n'; } >> "$own"
 # from MSYS2: the package that owns each bundled DLL, and lensfun's data
 pkgs=$(for f in "$dst"/bin/*.dll; do
+         [ "$(basename "$f")" = libexiv2-28.dll ] && continue
          [ -e "/ucrt64/bin/$(basename "$f")" ] && echo "/ucrt64/bin/$(basename "$f")"
        done | xargs pacman -Qqo 2>/dev/null; pacman -Qqo /ucrt64/share/lensfun 2>/dev/null || true)
 bare=""

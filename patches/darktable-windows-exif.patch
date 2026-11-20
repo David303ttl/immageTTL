@@ -1,0 +1,80 @@
+--- a/src/common/exif.cc
++++ b/src/common/exif.cc
+@@ -419,8 +419,17 @@
+ class Lock
+ {
+ public:
+-  Lock() { dt_pthread_mutex_lock(&darktable.exiv2_threadsafe); }
+-  ~Lock() { dt_pthread_mutex_unlock(&darktable.exiv2_threadsafe); }
++  explicit Lock(dt_pthread_mutex_t *mutex = &darktable.exiv2_threadsafe)
++    : _mutex(mutex)
++  {
++    dt_pthread_mutex_lock(_mutex);
++  }
++  ~Lock() { dt_pthread_mutex_unlock(_mutex); }
++  Lock(const Lock &) = delete;
++  Lock &operator=(const Lock &) = delete;
++
++private:
++  dt_pthread_mutex_t *_mutex;
+ };
+ 
+ #define read_metadata_threadsafe(image)                       \
+@@ -3024,7 +3033,7 @@
+     };
+ 
+     // read user defined exif tags from metadata editor
+-    dt_pthread_mutex_lock(&darktable.metadata_threadsafe);
++    Lock metadata_lock(&darktable.metadata_threadsafe);
+     for(GList *iter = dt_metadata_get_list(); iter; iter = iter->next)
+     {
+       dt_metadata_t *metadata = (dt_metadata_t *)iter->data;
+@@ -3038,15 +3047,14 @@
+         dt_metadata_set_import(img->id, metadata->tagname, str.c_str());
+       }
+     }
+-    dt_pthread_mutex_unlock(&darktable.metadata_threadsafe);
+ 
+     img->exif_inited = TRUE;
+     return true;
+   }
+-  catch(const Exiv2::AnyError &e)
++  catch(const std::exception &e)
+   {
+     const char *errstring = e.what();
+-    dt_print(DT_DEBUG_IMAGEIO, "[exiv2 _exif_decode_exif_data] %s: %s", img->filename, errstring);
++    dt_print(DT_DEBUG_ALWAYS, "[exiv2 _exif_decode_exif_data] %s: %s", img->filename, errstring);
+     return false;
+   }
+ }
+@@ -3356,9 +3364,9 @@
+   }
+   // At least set 'datetime taken' to something useful in case there is
+   // no Exif data in this file (pfm, png, ...)
+-  struct stat statbuf;
+-
+-  if(!stat(path, &statbuf))
++  GStatBuf statbuf;
++
++  if(!g_stat(path, &statbuf))
+   {
+     dt_datetime_unix_to_img(img, &statbuf.st_mtime);
+   }
+@@ -3435,7 +3443,7 @@
+ 
+     return res ? FALSE : TRUE;
+   }
+-  catch(const Exiv2::AnyError &e)
++  catch(const std::exception &e)
+   {
+     dt_print(DT_DEBUG_ALWAYS,
+              "[exiv2 dt_exif_read] %s: %s",
+--- a/packaging/CMakeLists.txt
++++ b/packaging/CMakeLists.txt
+@@ -1,4 +1,5 @@
+-if(WIN32 AND NOT BUILD_MSYS2_INSTALL)
++# Immage bundles the engine and resolves its DLLs itself.
++if(WIN32 AND NOT BUILD_MSYS2_INSTALL AND NOT IMMAGE_ROOT)
+ 
+   set(plugin_dest_dir lib/darktable/plugins)
+   set(APPS "\${CMAKE_INSTALL_PREFIX}/bin/darktable.exe") # paths to executables

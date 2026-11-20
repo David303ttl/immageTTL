@@ -41,13 +41,22 @@ each build, keeping what the last two builds of each profile use
 
 ## Windows
 
-Keep LF line endings when cloning the fork. Build the engine with
-`scripts/build.sh` in MSYS2 UCRT64, then install the npm dependencies for
-the importer and app in PowerShell. Run `npm.cmd run tauri build` from
-`app/` with x64 MSVC Rust to produce the NSIS installer in
+Keep LF line endings when cloning the fork. From the repository root,
+build the engine with `scripts/build.sh` in MSYS2 UCRT64, then install the
+npm dependencies for the importer and app in PowerShell. Run
+`npm.cmd run tauri build` from `app/` with x64 MSVC Rust to produce the NSIS installer in
 `app/src-tauri/target/release/bundle/nsis/`. A Windows on ARM virtual
 machine can build under x64 emulation. See the [Windows build guide](../../WINDOWS.md)
 for prerequisites and commands.
+
+The Windows build compiles a pinned Exiv2 release and applies Immage's Unicode
+path patch before linking and bundling the engine. The Windows build workflow
+checks the bundled engine's metadata and XMP behavior with
+`python -X utf8 verify/windows-metadata.py`.
+
+The production frontend build splits the locale catalogs, dependencies and
+workspace code into separate JavaScript chunks while preserving module
+initialization order.
 
 ## Linux
 

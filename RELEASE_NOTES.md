@@ -3,6 +3,14 @@
 The section for each version is the text of its release on GitHub, and
 what Immage's update banner shows under Release Notes.
 
+## Unreleased
+
+Bug fixes
+
+- Windows reads photo metadata and updates XMP sidecars in paths containing
+  characters such as `ł`. Nikon metadata no longer crashes import when the
+  Windows profile contains those characters, even for photos on another drive.
+
 ## 0.46.0
 
 Improvements

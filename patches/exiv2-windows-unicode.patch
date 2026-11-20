@@ -1,0 +1,326 @@
+diff --git a/src/basicio.cpp b/src/basicio.cpp
+index 6c204bd..aacdbee 100644
+--- a/src/basicio.cpp
++++ b/src/basicio.cpp
+@@ -17,6 +17,7 @@
+ #include <ctime>    // timestamp for the name of temporary file
+ #include <fstream>  // write the temporary file
+ #include <iostream>
++#include <limits>
+ 
+ // + standard includes
+ #include <fcntl.h>     // _O_BINARY in FileIo::FileIo
+@@ -98,7 +99,7 @@ class FileIo::Impl {
+   //! Simple struct stat wrapper for internal use
+   struct StructStat {
+     mode_t st_mode{0};  //!< Permissions
+-    off_t st_size{0};   //!< Size
++    int64_t st_size{0}; //!< Size
+   };
+   // #endif
+   // METHODS
+@@ -111,6 +112,7 @@ class FileIo::Impl {
+   int switchMode(OpMode opMode);
+   //! stat wrapper for internal use
+   int stat(StructStat& buf) const;
++  FILE* openFile() const;
+   // NOT IMPLEMENTED
+   Impl(const Impl&) = delete;             //!< Copy constructor
+   Impl& operator=(const Impl&) = delete;  //!< Assignment
+@@ -166,7 +168,7 @@ int FileIo::Impl::switchMode(OpMode opMode) {
+   std::fclose(fp_);
+   openMode_ = "r+b";
+   opMode_ = opSeek;
+-  fp_ = std::fopen(path_.c_str(), openMode_.c_str());
++  fp_ = openFile();
+   if (!fp_)
+     return 1;
+ #ifdef _WIN32
+@@ -176,9 +178,23 @@ int FileIo::Impl::switchMode(OpMode opMode) {
+ #endif
+ }  // FileIo::Impl::switchMode
+ 
++FILE* FileIo::Impl::openFile() const {
++#ifdef _WIN32
++  const std::wstring mode(openMode_.begin(), openMode_.end());
++  return _wfopen(fs::u8path(path_).c_str(), mode.c_str());
++#else
++  return std::fopen(path_.c_str(), openMode_.c_str());
++#endif
++}
++
+ int FileIo::Impl::stat(StructStat& buf) const {
++#ifdef _WIN32
++  struct _stat64 st;
++  auto ret = _wstat64(fs::u8path(path_).c_str(), &st);
++#else
+   struct stat st;
+   auto ret = ::stat(path_.c_str(), &st);
++#endif
+   if (ret == 0) {
+     buf.st_size = st.st_size;
+     buf.st_mode = st.st_mode;
+@@ -348,50 +364,31 @@ void FileIo::transfer(BasicIo& src) {
+     fileIo->close();
+     // Check if the file can be written to, if it already exists
+     if (open("a+b") != 0) {
+-      // Remove the (temporary) file
+-      fs::remove(fileIo->path());
+-      throw Error(ErrorCode::kerFileOpenFailed, path(), "a+b", strError());
++      const auto error = strError();
++      // Remove the (temporary) file.
++      std::error_code ignored;
++      fs::remove(fs::u8path(fileIo->path()), ignored);
++      throw Error(ErrorCode::kerFileOpenFailed, path(), "a+b", error);
+     }
+     close();
+ 
+-    bool statOk = true;
+-    mode_t origStMode = 0;
+     auto pf = path().c_str();
+-
+-    Impl::StructStat buf1;
+-    if (p_->stat(buf1) == -1) {
+-      statOk = false;
+-    }
+-    origStMode = buf1.st_mode;
++    Impl::StructStat buf1{};
++    bool statOk = p_->stat(buf1) == 0;
++    const auto origStMode = buf1.st_mode;
+ 
+     {
+-#if defined(_WIN32) && defined(REPLACEFILE_IGNORE_MERGE_ERRORS)
+-      // Windows implementation that deals with the fact that ::rename fails
+-      // if the target filename still exists, which regularly happens when
+-      // that file has been opened with FILE_SHARE_DELETE by another process,
+-      // like a virus scanner or disk indexer
+-      // (see also http://stackoverflow.com/a/11023068)
+-      using ReplaceFileA_t = BOOL(WINAPI*)(LPCSTR, LPCSTR, LPCSTR, DWORD, LPVOID, LPVOID);
+-      HMODULE hKernel = ::GetModuleHandleA("kernel32.dll");
+-      if (hKernel) {
+-        auto pfcn_ReplaceFileA = reinterpret_cast<ReplaceFileA_t>(GetProcAddress(hKernel, "ReplaceFileA"));
+-        if (pfcn_ReplaceFileA) {
+-          BOOL ret =
+-              pfcn_ReplaceFileA(pf, fileIo->path().c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr);
+-          if (ret == 0) {
+-            if (GetLastError() == ERROR_FILE_NOT_FOUND) {
+-              fs::rename(fileIo->path(), pf);
+-              fs::remove(fileIo->path());
+-            } else {
+-              throw Error(ErrorCode::kerFileRenameFailed, fileIo->path(), pf, strError());
+-            }
+-          }
++#ifdef _WIN32
++      const auto target = fs::u8path(path());
++      const auto source = fs::u8path(fileIo->path());
++      // ReplaceFile handles files held open with FILE_SHARE_DELETE.
++      if (!ReplaceFileW(target.c_str(), source.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr)) {
++        const auto error = GetLastError();
++        if (error == ERROR_FILE_NOT_FOUND) {
++          fs::rename(source, target);
+         } else {
+-          if (fileExists(pf) && ::remove(pf) != 0) {
+-            throw Error(ErrorCode::kerCallFailed, pf, strError(), "fs::remove");
+-          }
+-          fs::rename(fileIo->path(), pf);
+-          fs::remove(fileIo->path());
++          throw Error(ErrorCode::kerFileRenameFailed, fileIo->path(), pf,
++                      std::error_code(error, std::system_category()).message());
+         }
+       }
+ #else
+@@ -402,18 +399,25 @@ void FileIo::transfer(BasicIo& src) {
+       fs::remove(fileIo->path());
+ #endif
+       // Check permissions of new file
+-      struct stat buf2;
+-      if (statOk && ::stat(pf, &buf2) == -1) {
++      Impl::StructStat buf2;
++      if (statOk && p_->stat(buf2) == -1) {
+         statOk = false;
+ #ifndef SUPPRESS_WARNINGS
+         EXV_WARNING << Error(ErrorCode::kerCallFailed, pf, strError(), "::stat") << "\n";
+ #endif
+       }
+       // Set original file permissions
+-      if (statOk && origStMode != buf2.st_mode && ::chmod(pf, origStMode) == -1) {
++      if (statOk && origStMode != buf2.st_mode) {
++#ifdef _WIN32
++        const auto chmodResult = _wchmod(target.c_str(), origStMode);
++#else
++        const auto chmodResult = ::chmod(pf, origStMode);
++#endif
++        if (chmodResult == -1) {
+ #ifndef SUPPRESS_WARNINGS
+-        EXV_WARNING << Error(ErrorCode::kerCallFailed, pf, strError(), "::chmod") << "\n";
++          EXV_WARNING << Error(ErrorCode::kerCallFailed, pf, strError(), "::chmod") << "\n";
+ #endif
++        }
+       }
+     }
+   }  // if (fileIo)
+@@ -505,7 +509,7 @@ int FileIo::open(const std::string& mode) {
+   close();
+   p_->openMode_ = mode;
+   p_->opMode_ = Impl::opSeek;
+-  p_->fp_ = ::fopen(path().c_str(), mode.c_str());
++  p_->fp_ = p_->openFile();
+   if (!p_->fp_)
+     return 1;
+   return 0;
+@@ -1738,11 +1742,11 @@ DataBuf readFile(const std::string& path) {
+   if (file.open("rb") != 0) {
+     throw Error(ErrorCode::kerFileOpenFailed, path, "rb", strError());
+   }
+-  struct stat st;
+-  if (0 != ::stat(path.c_str(), &st)) {
+-    throw Error(ErrorCode::kerCallFailed, path, strError(), "::stat");
++  const auto size = file.size();
++  if (size == std::numeric_limits<size_t>::max()) {
++    throw Error(ErrorCode::kerCallFailed, path, strError(), "FileIo::size");
+   }
+-  DataBuf buf(st.st_size);
++  DataBuf buf(size);
+   if (file.read(buf.data(), buf.size()) != buf.size()) {
+     throw Error(ErrorCode::kerCallFailed, path, strError(), "FileIo::read");
+   }
+diff --git a/src/futils.cpp b/src/futils.cpp
+index 5118f77..16f5c57 100644
+--- a/src/futils.cpp
++++ b/src/futils.cpp
+@@ -236,7 +236,11 @@ bool fileExists(const std::string& path) {
+     return true;
+   }
+ #ifdef EXV_ENABLE_FILESYSTEM
++#ifdef _WIN32
++  return fs::exists(fs::u8path(path));
++#else
+   return fs::exists(path);
++#endif
+ #else
+   return false;
+ #endif
+diff --git a/src/makernote_int.cpp b/src/makernote_int.cpp
+index 166b07a..10f1544 100644
+--- a/src/makernote_int.cpp
++++ b/src/makernote_int.cpp
+@@ -17,6 +17,10 @@
+ // + standard includes
+ #include <array>
+ #include <iostream>
++#if defined(_WIN32) && defined(EXV_ENABLE_INIH)
++#include <fstream>
++#include <iterator>
++#endif
+ 
+ #ifdef EXV_ENABLE_FILESYSTEM
+ #if __has_include(<filesystem>)
+@@ -63,29 +67,36 @@ namespace Exiv2::Internal {
+ // on Lin the file should be named ".exiv2"
+ // If not found in cwd, we return the default path
+ // which is the user profile path on win and the home dir on linux
++#if defined(_WIN32) && defined(EXV_ENABLE_FILESYSTEM)
++static fs::path windowsConfigPath() {
++  constexpr auto inifile = L"exiv2.ini";
++  std::error_code error;
++  const auto currentPath = fs::current_path(error);
++  if (!error && fs::exists(currentPath / inifile, error)) {
++    return currentPath / inifile;
++  }
++
++  wchar_t profile[MAX_PATH];
++  if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PROFILE, nullptr, 0, profile))) {
++    return fs::path(profile) / inifile;
++  }
++  return currentPath.empty() ? fs::path{} : currentPath / inifile;
++}
++#endif
++
+ std::string getExiv2ConfigPath() {
+ #ifdef EXV_ENABLE_FILESYSTEM
+ #ifdef _WIN32
+-  std::string inifile("exiv2.ini");
++  return windowsConfigPath().u8string();
+ #else
+-  std::string inifile(".exiv2");
+-#endif
+-  auto currentPath = fs::current_path();
+-  auto iniPath = currentPath / inifile;
++  const auto iniPath = fs::current_path() / ".exiv2";
+   if (fs::exists(iniPath)) {
+     return iniPath.string();
+   }
+ 
+-#ifdef _WIN32
+-  char buffer[1024];
+-  if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, buffer))) {
+-    currentPath = buffer;
+-  }
+-#else
+   auto pw = getpwuid(getuid());
+-  currentPath = std::string(pw ? pw->pw_dir : "");
++  return (fs::path(pw ? pw->pw_dir : "") / ".exiv2").string();
+ #endif
+-  return (currentPath / inifile).string();
+ #else
+   return "";
+ #endif
+@@ -96,7 +107,16 @@ std::string readExiv2Config([[maybe_unused]] const std::string& section, [[maybe
+   std::string result = def;
+ 
+ #if defined(EXV_ENABLE_INIH) && defined(EXV_ENABLE_FILESYSTEM)
++#ifdef _WIN32
++  std::ifstream stream(windowsConfigPath(), std::ios::binary);
++  if (!stream) {
++    return def;
++  }
++  const std::string contents{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
++  INIReader reader(contents.data(), contents.size());
++#else
+   INIReader reader(Exiv2::Internal::getExiv2ConfigPath());
++#endif
+   if (reader.ParseError() == 0) {
+     result = reader.Get(section, value, def);
+   }
+diff --git a/src/xmp.cpp b/src/xmp.cpp
+index f60722b..e3e9918 100644
+--- a/src/xmp.cpp
++++ b/src/xmp.cpp
+@@ -80,8 +80,13 @@ class XMLValidator {
+   }
+ 
+   void setError(const char* msg) {
++#if XML_MAJOR_VERSION > 2 || (XML_MAJOR_VERSION == 2 && XML_MINOR_VERSION >= 9)
++    const auto errlinenum = XML_GetCurrentLineNumber64(parser_);
++    const auto errcolnum = XML_GetCurrentColumnNumber64(parser_);
++#else
+     const XML_Size errlinenum = XML_GetCurrentLineNumber(parser_);
+     const XML_Size errcolnum = XML_GetCurrentColumnNumber(parser_);
++#endif
+ #ifndef SUPPRESS_WARNINGS
+     EXV_INFO << "Invalid XML at line " << errlinenum << ", column " << errcolnum << ": " << msg << "\n";
+ #endif
+diff --git a/xmpsdk/src/XMPMeta.cpp b/xmpsdk/src/XMPMeta.cpp
+index 30ff4a5..74959fc 100644
+--- a/xmpsdk/src/XMPMeta.cpp
++++ b/xmpsdk/src/XMPMeta.cpp
+@@ -87,7 +87,7 @@ static const char * kTenSpaces = "          ";
+ #define OutProcHexInt(num)	{ snprintf ( buffer, sizeof(buffer), "%X", (num) ); /* AUDIT: Using sizeof for snprintf length is safe */	\
+ 							  status = (*outProc) ( refCon, buffer, strlen(buffer) );  if ( status != 0 ) goto EXIT; }
+ #else
+-#define OutProcHexInt(num)	{ snprintf ( buffer, sizeof(buffer), "%lX", (num) ); /* AUDIT: Using sizeof for snprintf length is safe */	\
++#define OutProcHexInt(num)	{ snprintf ( buffer, sizeof(buffer), "%lX", static_cast<unsigned long>(num) ); /* AUDIT: Using sizeof for snprintf length is safe */	\
+ 							  status = (*outProc) ( refCon, buffer, strlen(buffer) );  if ( status != 0 ) goto EXIT; }
+ #endif
+ 
+@@ -749,8 +749,8 @@ XMPMeta::Initialize()
+ 	XMP_Assert ( (flag ^ kXMP_PropHasLang) == 0xFFFFFFBFUL );
+ 	XMP_Assert ( (flag & ~kXMP_PropHasLang) == 0xFFFFFFBFUL );
+ 	
+-	XMP_OptionBits opt1 = 0;	// Check the general option bit macros.
+-	XMP_OptionBits opt2 = flag;
++	[[maybe_unused]] XMP_OptionBits opt1 = 0;	// Check the general option bit macros.
++	[[maybe_unused]] XMP_OptionBits opt2 = flag;
+ 	XMP_SetOption ( opt1, kXMP_PropValueIsArray );
+ 	XMP_ClearOption ( opt2, kXMP_PropValueIsArray );
+ 	XMP_Assert ( opt1 == ~opt2 );

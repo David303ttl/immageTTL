@@ -16,6 +16,14 @@ sh app/scripts/fetch_immporter.sh
 
 echo "== darktable and the engine"
 sh scripts/patch_darktable.sh
+patch="$root/patches/darktable-windows-exif.patch"
+if ! git -C darktable apply --reverse --check "$patch" 2>/dev/null; then
+  git -C darktable apply "$patch"
+fi
+
+echo "== Exiv2"
+sh app/scripts/build_exiv2_windows.sh
+exiv2="$root/build/exiv2-windows/install"
 # OpenCV for HDR Merge's alignment, built rather than MSYS2's, as on the
 # other platforms (scripts/build.sh)
 sh app/scripts/build_opencv.sh
@@ -26,17 +34,23 @@ sh app/scripts/build_opencv.sh
 # view fails to compile without it; it needs only Windows' own DLLs.
 # BINARY_PACKAGE_BUILD builds for generic x86-64 rather than darktable's
 # default -march=native, the build machine's CPU (cmake/march-mtune.cmake)
+PKG_CONFIG_PATH="$(cygpath -m "$exiv2/lib/pkgconfig")${PKG_CONFIG_PATH:+;$PKG_CONFIG_PATH}" \
 cmake -S darktable -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_AI=ON -DUSE_LUA=OFF \
+      -U 'Exiv2_PKGCONF_*' -U '__pkg_config_checked_Exiv2_PKGCONF' \
+      -DCMAKE_POLICY_DEFAULT_CMP0177=NEW \
       -DUSE_CAMERA_SUPPORT=OFF -DUSE_COLORD=OFF -DUSE_GMIC=OFF -DUSE_GRAPHICSMAGICK=OFF \
       -DUSE_ICU=OFF -DUSE_IMAGEMAGICK=OFF -DUSE_KWALLET=OFF -DUSE_LIBSECRET=OFF \
       -DUSE_MAP=OFF -DUSE_OPENCV=ON -DOpenCV_ROOT="$root/build/opencv/install" \
       -DOpenCV_STATIC=ON -DIMMAGE_REQUIRE_PANO=ON \
       -DUSE_PORTMIDI=OFF -DUSE_SDL2=OFF \
       -DDONT_USE_INTERNAL_LIBRAW=ON -DBUILD_TESTING=OFF -DBINARY_PACKAGE_BUILD=ON \
+      -DCMAKE_PREFIX_PATH="$exiv2" -DExiv2_INCLUDE_DIR="$exiv2/include" \
+      -DExiv2_LIBRARY="$exiv2/lib/libexiv2.dll.a" \
       -DIMMAGE_ROOT="$root"
 cmake --build build
 rm -rf build/install
 cmake --install build --prefix build/install > build/install.log
+cp "$exiv2/bin/libexiv2-28.dll" build/install/bin/
 
 echo "== bundling the engine"
 sh app/scripts/bundle_engine_windows.sh
