@@ -41,12 +41,13 @@ each build, keeping what the last two builds of each profile use
 
 ## Windows
 
-[app/WINDOWS.md](../../WINDOWS.md) walks through it: darktable's MSYS2
-toolchain for the engine (`scripts/build.sh` in the MSYS2 UCRT64 shell),
-then `npm run tauri build` in PowerShell with the MSVC Rust toolchain. It
-makes the NSIS `.exe` installer in
-`app/src-tauri/target/release/bundle/`. A Windows on ARM virtual machine
-works, building under x64 emulation.
+Keep LF line endings when cloning the fork. Build the engine with
+`scripts/build.sh` in MSYS2 UCRT64, then install the npm dependencies for
+the importer and app in PowerShell. Run `npm.cmd run tauri build` from
+`app/` with x64 MSVC Rust to produce the NSIS installer in
+`app/src-tauri/target/release/bundle/nsis/`. A Windows on ARM virtual
+machine can build under x64 emulation. See the [Windows build guide](../../WINDOWS.md)
+for prerequisites and commands.
 
 ## Linux
 

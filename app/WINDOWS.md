@@ -11,19 +11,22 @@ Install, choosing the x64 download wherever there is a choice:
 
 1. **Git for Windows** (git-scm.com)
 2. **MSYS2** (msys2.org), into `C:\msys64`
-3. **Build Tools for Visual Studio 2022**, with the *Desktop development
-   with C++* workload and *MSVC v143 - VS 2022 C++ x64/x86 build tools*
-4. **Rust** (rustup.rs). On Windows on ARM rustup installs the ARM
-   toolchain whichever installer you run; for an x64 build switch to the
-   x64 one, which runs under Windows' x64 emulation (rustup asks for
-   `--force-non-host` to install a toolchain for another processor), in
-   PowerShell:
+3. **Visual Studio or Visual Studio Build Tools**, with the *Desktop
+   development with C++* workload, MSVC x64/x86 tools, and a Windows SDK.
+   The fork builds with Visual Studio 2026 Build Tools. For Visual Studio
+   2022, select *MSVC v143 - VS 2022 C++ x64/x86 build tools*.
+4. **Rust 1.89 or newer** (rustup.rs), using the x64 MSVC toolchain. After
+   installing rustup, open a fresh PowerShell and run:
 
    ```powershell
-   rustup toolchain install stable-x86_64-pc-windows-msvc --force-non-host
+   rustup toolchain install stable-x86_64-pc-windows-msvc
    rustup default stable-x86_64-pc-windows-msvc
+   rustc -vV
    ```
-5. **Node.js LTS** (nodejs.org, the x64 `.msi`)
+   On Windows on ARM, add `--force-non-host` to the install command if
+   rustup selected an ARM host. Check that `rustc -vV` reports
+   `host: x86_64-pc-windows-msvc`.
+5. **Node.js LTS** (nodejs.org, the x64 `.msi`). The fork builds with Node 22 x64.
 
 Then, in the **MSYS2 UCRT64** shell (not "MSYS2 MSYS"), darktable's
 libraries: the list darktable's own Windows CI installs, without those of
@@ -36,28 +39,16 @@ pacman -Syu        # again if it closes the shell half way
 pacman -S --needed git intltool po4a mingw-w64-ucrt-x86_64-{cc,cmake,ninja,libxslt,python-jsonschema,curl,drmingw,exiv2,gcc-libs,gettext,gtk3,imath,iso-codes,lcms2,lensfun,libarchive,libavif,libheif,libjpeg-turbo,libjxl,libpng,libraw,librsvg,libtiff,libwebp,libxml2,omp,openexr,openjpeg2,potrace,pugixml,sqlite3,zlib,json-glib}
 ```
 
-And the code, also in the UCRT64 shell. A short path such as `C:\src`
-keeps clear of Windows' path length limit:
+Clone the fork in the UCRT64 shell. A short path such as `C:\src` helps
+avoid Windows path length limits. Set `core.autocrlf=false` at clone time
+to keep LF endings in shell scripts and the darktable patch, as Windows CI does.
 
 ```sh
-git config --global core.longpaths true
 mkdir -p /c/src && cd /c/src
-git clone https://github.com/Rhettus/immage.git immage
-cd immage
-git submodule update --init darktable
-git -C darktable submodule update --init src/external/rawspeed src/external/OpenCL src/external/libxcf src/external/whereami src/external/LibRaw
-git clone https://github.com/Rhettus/immporter immporter
-git -C immporter checkout --detach $(cat app/immporter.rev)
+git clone --config core.autocrlf=false --config core.longpaths=true \
+  https://github.com/David303ttl/immageTTL.git immageTTL
+cd immageTTL
 ```
-
-darktable is a submodule, at the commit Immage pins
-([darktable-pin.md](docs/dev/darktable-pin.md)). Its clone brings
-darktable's release tags, which the engine's version string is worked out
-from (`tools/get_git_version_string.sh`). Without them the engine reports
-a version such as `0.10.0-49-g...`, and the AI model download, which looks
-up models by darktable version, has no match for it.
-`git -C darktable describe --tags --match 'release-*'` should print
-`release-5.7.0-...`.
 
 ## Each build
 
@@ -65,34 +56,37 @@ up models by darktable version, has no match for it.
 long while; later ones only rebuild what changed:
 
 ```sh
-cd /c/src/immage
-git pull
-git submodule update darktable
-git -C immporter fetch
-git -C immporter checkout --detach $(cat app/immporter.rev)
-sh app/scripts/build_engine_windows.sh
+cd /c/src/immageTTL
+GIT_CONFIG_COUNT=2 \
+  GIT_CONFIG_KEY_0=core.autocrlf GIT_CONFIG_VALUE_0=false \
+  GIT_CONFIG_KEY_1=core.longpaths GIT_CONFIG_VALUE_1=true \
+  sh scripts/build.sh
 ```
 
-The two `immporter` lines keep the import screen at the commit this
-version of Immage pins (`app/immporter.rev`); they do nothing when it has
-not moved.
+The environment settings also apply to the Git commands the build runs.
+The script initializes the pinned darktable checkout and its engine
+submodules, builds OpenCV and the engine, and checks out the importer at
+the commit in `app/immporter.rev`.
 
 It ends with `bundled N DLLs, ... MB; not found: 0`.
+
+The engine derives its version from the release tags in the pinned
+[darktable checkout](docs/dev/darktable-pin.md). The AI model downloader
+uses that version to find compatible models. After the engine build,
+`git -C darktable describe --tags --match 'release-*'` should print
+`release-5.7.0-...` for the current pin.
 
 **2. The app and its installers**, in **PowerShell** (MSYS2's shell does
 not see Windows' Node and Rust):
 
-Windows ships with PowerShell scripts switched off, and `npm` starts
-through one. Allow your own once (or call `npm.cmd` instead of `npm`):
+Use `npm.cmd` to run npm with PowerShell's existing execution policy.
 
 ```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-```powershell
-cd C:\src\immage\immporter; npm ci
-cd C:\src\immage\app; npm ci
-npm run tauri build
+cd C:\src\immageTTL\immporter
+npm.cmd ci
+cd ..\app
+npm.cmd ci
+npm.cmd run tauri build
 ```
 
 The installer lands in
@@ -109,6 +103,12 @@ that copy first.
 
 - Copy the last 20 or so lines of the window's output; the first error is
   the one that matters.
+- If `git ls-files --eol scripts/build.sh` shows `w/crlf`, use a fresh
+  checkout with the clone command above. Shell scripts and patch context
+  need LF endings.
+- If PowerShell cannot find Rust after installation, open a fresh session.
+  If you installed rustup without adding it to PATH, run
+  `$env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"` for the build session.
 - An unsigned installer makes SmartScreen warn on first run: *More info >
   Run anyway*.
 - AI masks download their models on first use with Windows' own `curl`
